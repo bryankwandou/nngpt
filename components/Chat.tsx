@@ -1,8 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { DEFAULT_MODEL, MODELS, type ModelId } from "@/lib/models";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  getActiveProfile,
+  loadSettings,
+  type SettingsState,
+  type Profile,
+} from "@/lib/settings";
 import Markdown from "@/components/Markdown";
+import SettingsModal from "@/components/SettingsModal";
 
 interface Message {
   id: string;
@@ -14,7 +20,7 @@ interface Conversation {
   id: string;
   title: string;
   messages: Message[];
-  model: ModelId;
+  model: string;
   createdAt: number;
 }
 
@@ -47,34 +53,48 @@ function saveConversations(convs: Conversation[]) {
 export default function Chat() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [model, setModel] = useState<ModelId>(DEFAULT_MODEL);
+  const [settings, setSettings] = useState<SettingsState>({ profiles: [], activeId: null });
+  const [model, setModel] = useState<string>("");
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [modelOpen, setModelOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const modelMenuRef = useRef<HTMLDivElement>(null);
 
-  // hydrate from localStorage
+  const activeProfile: Profile | null = useMemo(() => getActiveProfile(settings), [settings]);
+  const availableModels = activeProfile?.models ?? [];
+
+  // hydrate
   useEffect(() => {
     const loaded = loadConversations();
     setConversations(loaded);
-    if (loaded.length > 0) {
-      setActiveId(loaded[0].id);
-      setModel(loaded[0].model);
-    }
+    if (loaded.length > 0) setActiveId(loaded[0].id);
+    const s = loadSettings();
+    setSettings(s);
+    const ap = getActiveProfile(s);
+    setModel(ap?.defaultModel || ap?.models[0] || "");
   }, []);
 
-  // persist on change
+  // persist conversations
   useEffect(() => {
     if (conversations.length > 0) saveConversations(conversations);
   }, [conversations]);
 
+  // when settings change, ensure model is valid for active profile
+  useEffect(() => {
+    if (!activeProfile) return;
+    if (!activeProfile.models.includes(model)) {
+      setModel(activeProfile.defaultModel || activeProfile.models[0] || "");
+    }
+  }, [activeProfile, model]);
+
   const active = conversations.find((c) => c.id === activeId) ?? null;
 
-  // auto-scroll on new content
+  // auto-scroll
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -177,12 +197,24 @@ export default function Chat() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: apiMessages, model }),
+        body: JSON.stringify({
+          messages: apiMessages,
+          model,
+          apiKey: activeProfile?.apiKey ?? "",
+          baseURL: activeProfile?.baseURL ?? "",
+        }),
         signal: ctrl.signal,
       });
 
       if (!res.ok || !res.body) {
         const errText = await res.text().catch(() => "Unknown error");
+        let parsed = errText;
+        try {
+          const j = JSON.parse(errText);
+          if (j?.error) parsed = j.error;
+        } catch {
+          // not json
+        }
         setConversations((prev) =>
           prev.map((c) =>
             c.id === convId
@@ -190,7 +222,7 @@ export default function Chat() {
                   ...c,
                   messages: c.messages.map((m) =>
                     m.id === assistantMsg.id
-                      ? { ...m, content: `Error: ${errText.slice(0, 500)}` }
+                      ? { ...m, content: `Error: ${parsed.toString().slice(0, 500)}` }
                       : m
                   ),
                 }
@@ -240,7 +272,7 @@ export default function Chat() {
       setIsStreaming(false);
       abortRef.current = null;
     }
-  }, [input, isStreaming, activeId, conversations, model]);
+  }, [input, isStreaming, activeId, conversations, model, activeProfile]);
 
   const onKey = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -260,7 +292,11 @@ export default function Chat() {
     }
   }, []);
 
-  const currentModelLabel = MODELS.find((m) => m.id === model)?.label ?? model;
+  const displayModelLabel = useMemo(() => {
+    if (!model) return "select model";
+    // strip 'gpt-' prefix for compactness
+    return model.length > 28 ? model.slice(0, 26) + "…" : model;
+  }, [model]);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[var(--color-bg)] text-[var(--color-text)]">
@@ -271,9 +307,9 @@ export default function Chat() {
         } shrink-0 overflow-hidden bg-[var(--color-bg-sidebar)] transition-[width] duration-200 ease-out`}
       >
         <div className="flex h-full w-[260px] flex-col">
-          {/* sidebar header */}
           <div className="flex items-center justify-between px-3 pt-3">
             <button
+              type="button"
               onClick={() => setSidebarOpen(false)}
               className="rounded-lg p-2 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
               title="Close sidebar"
@@ -282,6 +318,7 @@ export default function Chat() {
               <SidebarIcon />
             </button>
             <button
+              type="button"
               onClick={newConversation}
               className="rounded-lg p-2 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
               title="New chat"
@@ -291,7 +328,6 @@ export default function Chat() {
             </button>
           </div>
 
-          {/* primary nav */}
           <div className="mt-2 px-2">
             <button
               type="button"
@@ -303,23 +339,17 @@ export default function Chat() {
             </button>
           </div>
 
-          {/* recents */}
           <div className="mt-4 flex-1 overflow-y-auto px-2 pb-4">
             <div className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-dim)]">
               Chats
             </div>
             {conversations.length === 0 && (
-              <div className="px-2 py-2 text-xs text-[var(--color-text-dim)]">
-                No chats yet
-              </div>
+              <div className="px-2 py-2 text-xs text-[var(--color-text-dim)]">No chats yet</div>
             )}
             {conversations.map((c) => (
               <div
                 key={c.id}
-                onClick={() => {
-                  setActiveId(c.id);
-                  setModel(c.model);
-                }}
+                onClick={() => setActiveId(c.id)}
                 className={`group relative mb-0.5 flex cursor-pointer items-center rounded-lg px-2 py-2 text-sm transition-colors ${
                   c.id === activeId
                     ? "bg-[var(--color-bg-hover)] text-[var(--color-text)]"
@@ -328,6 +358,7 @@ export default function Chat() {
               >
                 <span className="truncate pr-6">{c.title || "Untitled"}</span>
                 <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     deleteConversation(c.id);
@@ -344,16 +375,23 @@ export default function Chat() {
 
           {/* footer */}
           <div className="border-t border-[#2a2a2a] p-2">
-            <div className="flex items-center gap-2 rounded-lg px-2 py-2 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(true)}
+              className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-sm text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text)]"
+              title="Settings"
+            >
+              <GearIcon />
+              <span>Settings</span>
+            </button>
+            <div className="mt-1 flex items-center gap-2 rounded-lg px-2 py-2 text-sm">
               <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-[#10a37f] to-[#0c7561] text-[11px] font-semibold text-white">
                 N
               </div>
               <div className="min-w-0 flex-1">
-                <div className="truncate text-xs font-medium text-[var(--color-text)]">
-                  nngpt
-                </div>
+                <div className="truncate text-xs font-medium text-[var(--color-text)]">nngpt</div>
                 <div className="truncate text-[10px] text-[var(--color-text-dim)]">
-                  via Jatevo Balancer
+                  {activeProfile?.name ?? "no profile"}
                 </div>
               </div>
             </div>
@@ -363,69 +401,103 @@ export default function Chat() {
 
       {/* Main */}
       <main className="flex flex-1 flex-col">
-        {/* Top bar */}
         <header className="flex items-center gap-2 px-3 py-2.5">
           {!sidebarOpen && (
-            <button
-              onClick={() => setSidebarOpen(true)}
-              className="rounded-lg p-2 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
-              title="Open sidebar"
-              aria-label="Open sidebar"
-            >
-              <SidebarIcon />
-            </button>
-          )}
-          {!sidebarOpen && (
-            <button
-              onClick={newConversation}
-              className="rounded-lg p-2 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
-              title="New chat"
-              aria-label="New chat"
-            >
-              <PencilIcon />
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => setSidebarOpen(true)}
+                className="rounded-lg p-2 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+                title="Open sidebar"
+                aria-label="Open sidebar"
+              >
+                <SidebarIcon />
+              </button>
+              <button
+                type="button"
+                onClick={newConversation}
+                className="rounded-lg p-2 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+                title="New chat"
+                aria-label="New chat"
+              >
+                <PencilIcon />
+              </button>
+            </>
           )}
           <div ref={modelMenuRef} className="relative">
             <button
+              type="button"
               onClick={() => setModelOpen((v) => !v)}
-              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[15px] font-semibold text-[var(--color-text)] hover:bg-[var(--color-bg-hover)]"
+              disabled={availableModels.length === 0}
+              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[15px] font-semibold text-[var(--color-text)] hover:bg-[var(--color-bg-hover)] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <span>nngpt {currentModelLabel.replace("GPT-", "")}</span>
+              <span>nngpt · {displayModelLabel}</span>
               <ChevronDownIcon />
             </button>
-            {modelOpen && (
-              <div className="absolute left-0 top-full z-40 mt-1 w-[300px] rounded-xl border border-[#3a3a3a] bg-[#2f2f2f] p-1.5 shadow-2xl">
-                {MODELS.map((m) => (
+            {modelOpen && availableModels.length > 0 && (
+              <div className="absolute left-0 top-full z-40 mt-1 max-h-[400px] w-[320px] overflow-y-auto rounded-xl border border-[#3a3a3a] bg-[#2f2f2f] p-1.5 shadow-2xl">
+                <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-dim)]">
+                  {activeProfile?.name}
+                </div>
+                {availableModels.map((m) => (
                   <button
-                    key={m.id}
+                    key={m}
+                    type="button"
                     onClick={() => {
-                      setModel(m.id);
+                      setModel(m);
                       setModelOpen(false);
                     }}
-                    className={`flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left text-sm hover:bg-[#3a3a3a] ${
-                      m.id === model ? "bg-[#3a3a3a]" : ""
+                    className={`flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left text-sm hover:bg-[#3a3a3a] ${
+                      m === model ? "bg-[#3a3a3a]" : ""
                     }`}
                   >
                     <div className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center">
-                      {m.id === model ? <CheckIcon /> : null}
+                      {m === model ? <CheckIcon /> : null}
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="font-medium text-[var(--color-text)]">{m.label}</div>
-                      <div className="text-xs text-[var(--color-text-secondary)]">
-                        {m.description}
-                      </div>
+                    <div className="min-w-0 flex-1 truncate font-mono text-[13px] text-[var(--color-text)]">
+                      {m}
                     </div>
                   </button>
                 ))}
+                <div className="mt-1 border-t border-[#3a3a3a] pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setModelOpen(false);
+                      setSettingsOpen(true);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-[var(--color-text-secondary)] hover:bg-[#3a3a3a]"
+                  >
+                    <GearIcon />
+                    <span>Manage profiles</span>
+                  </button>
+                </div>
               </div>
             )}
           </div>
+          <div className="ml-auto flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(true)}
+              className="rounded-lg p-2 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+              title="Settings"
+              aria-label="Settings"
+            >
+              <GearIcon />
+            </button>
+          </div>
         </header>
 
-        {/* Messages */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto">
           {!active || active.messages.length === 0 ? (
-            <Welcome onPick={(p) => { setInput(p); textareaRef.current?.focus(); }} />
+            <Welcome
+              onPick={(p) => {
+                setInput(p);
+                textareaRef.current?.focus();
+              }}
+              onOpenSettings={() => setSettingsOpen(true)}
+              hasKey={(activeProfile?.apiKey ?? "").length > 0}
+            />
           ) : (
             <div className="mx-auto max-w-3xl px-4 py-6">
               {active.messages.map((m, i) => (
@@ -447,11 +519,11 @@ export default function Chat() {
           )}
         </div>
 
-        {/* Composer */}
         <div className="px-4 pb-3">
           <div className="mx-auto max-w-3xl">
             <div className="flex items-end gap-2 rounded-3xl border border-[#3a3a3a] bg-[var(--color-bg-elev)] px-3 py-2.5 focus-within:border-[#5a5a5a]">
               <button
+                type="button"
                 className="mb-1 rounded-full p-1.5 text-[var(--color-text-secondary)] hover:bg-[#3a3a3a]"
                 title="Attach (coming soon)"
                 aria-label="Attach"
@@ -470,6 +542,7 @@ export default function Chat() {
               />
               {isStreaming ? (
                 <button
+                  type="button"
                   onClick={stop}
                   className="mb-1 flex h-8 w-8 items-center justify-center rounded-full bg-white text-black hover:bg-[#e5e5e5]"
                   title="Stop"
@@ -479,8 +552,9 @@ export default function Chat() {
                 </button>
               ) : (
                 <button
+                  type="button"
                   onClick={send}
-                  disabled={!input.trim()}
+                  disabled={!input.trim() || availableModels.length === 0}
                   className="mb-1 flex h-8 w-8 items-center justify-center rounded-full bg-white text-black transition-opacity hover:bg-[#e5e5e5] disabled:cursor-not-allowed disabled:bg-[#4a4a4a] disabled:text-[#8e8e8e]"
                   title="Send"
                   aria-label="Send"
@@ -495,6 +569,12 @@ export default function Chat() {
           </div>
         </div>
       </main>
+
+      <SettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onChange={(s) => setSettings(s)}
+      />
     </div>
   );
 }
@@ -542,6 +622,7 @@ function MessageBubble({
         {!streaming && content.length > 0 && (
           <div className="mt-2 flex items-center gap-1">
             <button
+              type="button"
               onClick={handleCopy}
               className="rounded-md p-1.5 text-[var(--color-text-dim)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
               title={copied ? "Copied!" : "Copy"}
@@ -556,7 +637,15 @@ function MessageBubble({
   );
 }
 
-function Welcome({ onPick }: { onPick: (p: string) => void }) {
+function Welcome({
+  onPick,
+  onOpenSettings,
+  hasKey,
+}: {
+  onPick: (p: string) => void;
+  onOpenSettings: () => void;
+  hasKey: boolean;
+}) {
   const prompts = [
     { title: "Explain SSE streaming", body: "in 5 sentences" },
     { title: "Write a Python function", body: "that finds primes up to N" },
@@ -568,13 +657,22 @@ function Welcome({ onPick }: { onPick: (p: string) => void }) {
       <div className="mb-8 flex h-12 w-12 items-center justify-center rounded-full border border-[#3a3a3a]">
         <SparkleIcon large />
       </div>
-      <div className="mb-10 text-2xl font-medium text-[var(--color-text)]">
-        How can I help?
-      </div>
+      <div className="mb-2 text-2xl font-medium text-[var(--color-text)]">How can I help?</div>
+      {!hasKey && (
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          className="mb-8 text-xs text-[var(--color-text-dim)] underline decoration-dotted underline-offset-2 hover:text-[var(--color-text-secondary)]"
+        >
+          Using server&apos;s default key — click to set your own
+        </button>
+      )}
+      {hasKey && <div className="mb-8 h-4" />}
       <div className="grid w-full max-w-2xl grid-cols-1 gap-2 sm:grid-cols-2">
         {prompts.map((p) => (
           <button
             key={p.title}
+            type="button"
             onClick={() => onPick(`${p.title} ${p.body}`)}
             className="rounded-2xl border border-[#3a3a3a] bg-transparent p-3 text-left transition-colors hover:bg-[var(--color-bg-hover)]"
           >
@@ -587,7 +685,7 @@ function Welcome({ onPick }: { onPick: (p: string) => void }) {
   );
 }
 
-/* ---------- icons (inline svg, no deps) ---------- */
+/* ---------- icons ---------- */
 
 function SidebarIcon() {
   return (
@@ -673,6 +771,15 @@ function TrashIcon() {
       <path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6" />
       <path d="M10 11v6" />
       <path d="M14 11v6" />
+    </svg>
+  );
+}
+
+function GearIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
     </svg>
   );
 }

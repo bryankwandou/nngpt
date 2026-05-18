@@ -12,23 +12,26 @@ interface ChatMessage {
 interface ChatRequestBody {
   messages: ChatMessage[];
   model: string;
+  apiKey?: string;
+  baseURL?: string;
 }
 
 const SYSTEM_PROMPT =
-  "You are nngpt, a helpful and concise assistant powered by Jatevo Balancer. " +
+  "You are nngpt, a helpful and concise assistant. " +
   "Format code in markdown fenced blocks. Be direct and accurate.";
 
+function pickKeyAndBase(body: ChatRequestBody) {
+  const clientKey = (body.apiKey || "").trim();
+  const clientBase = (body.baseURL || "").trim();
+  const apiKey = clientKey || process.env.OPENAI_API_KEY || "";
+  const baseURL = (clientBase || process.env.OPENAI_BASE_URL || "https://lb.jatevo.ai/v1").replace(
+    /\/+$/,
+    ""
+  );
+  return { apiKey, baseURL };
+}
+
 export async function POST(req: NextRequest) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  const baseURL = process.env.OPENAI_BASE_URL || "https://lb.jatevo.ai/v1";
-
-  if (!apiKey) {
-    return new Response(
-      JSON.stringify({ error: "OPENAI_API_KEY is not configured on the server." }),
-      { status: 500, headers: { "content-type": "application/json" } }
-    );
-  }
-
   let body: ChatRequestBody;
   try {
     body = (await req.json()) as ChatRequestBody;
@@ -47,6 +50,17 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  const { apiKey, baseURL } = pickKeyAndBase(body);
+  if (!apiKey) {
+    return new Response(
+      JSON.stringify({
+        error:
+          "No API key. Open Settings (gear icon) and paste your key, or configure OPENAI_API_KEY on the server.",
+      }),
+      { status: 401, headers: { "content-type": "application/json" } }
+    );
+  }
+
   const upstream = await fetch(`${baseURL}/chat/completions`, {
     method: "POST",
     headers: {
@@ -63,7 +77,7 @@ export async function POST(req: NextRequest) {
   if (!upstream.ok || !upstream.body) {
     const text = await upstream.text().catch(() => "");
     return new Response(
-      JSON.stringify({ error: `Upstream error ${upstream.status}: ${text.slice(0, 500)}` }),
+      JSON.stringify({ error: `Upstream ${upstream.status}: ${text.slice(0, 500)}` }),
       { status: 502, headers: { "content-type": "application/json" } }
     );
   }

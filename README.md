@@ -7,12 +7,14 @@ A self-hosted, ChatGPT-style chat interface built with **Next.js 15 (App Router)
 ## Features
 
 - ChatGPT-like dark UI (sidebar, conversations, composer, model picker)
-- Streaming responses (Edge runtime → SSE → ReadableStream)
-- Multiple models: `gpt-5.5`, `gpt-5.4`, `gpt-5.3-codex`, `gpt-5.4-mini`, `gpt-5.2`
-- LocalStorage conversation history (per-browser, no DB needed)
+- Streaming responses (SSE → ReadableStream proxy)
+- **Settings panel** — bring-your-own-key with multiple API profiles:
+  Jatevo Balancer, OpenAI, Groq, OpenRouter, DeepSeek, Mistral, Together AI, or any
+  OpenAI-compatible base URL. Test connection, revoke key, import/export JSON.
+- LocalStorage conversation history & profiles (per-browser, no DB needed)
 - Lightweight zero-dependency markdown rendering (code blocks, lists, bold/italic, links)
 - Stop / abort streaming mid-response
-- Edge runtime → low cold-start on Vercel
+- Server env (`OPENAI_API_KEY` + `OPENAI_BASE_URL`) acts as fallback when no per-profile key is set
 
 ## Local development
 
@@ -24,14 +26,33 @@ npm run dev
 # open http://localhost:3000
 ```
 
-## Environment variables
+## Environment variables (server fallback)
 
-| Name              | Required | Default                       |
-|-------------------|----------|-------------------------------|
-| `OPENAI_API_KEY`  | ✓        | —                             |
-| `OPENAI_BASE_URL` |          | `https://lb.jatevo.ai/v1`     |
+| Name              | Required                                | Default                       |
+|-------------------|-----------------------------------------|-------------------------------|
+| `OPENAI_API_KEY`  | ✗ (only if no client-side key is set)   | —                             |
+| `OPENAI_BASE_URL` |                                         | `https://lb.jatevo.ai/v1`     |
 
+These act as a fallback when the user has not entered a key via the **Settings** panel.
 The Jatevo Balancer key looks like `sk-clb-…`. Never commit it.
+
+## Using the Settings panel
+
+Click the gear icon in the sidebar (or top-right) to open Settings. Each **profile** holds:
+
+- **Display name** — e.g. "My OpenAI", "Work Groq"
+- **Preset** — pick a provider to autofill base URL + model list (Jatevo, OpenAI, Groq, OpenRouter, DeepSeek, Mistral, Together AI, Custom)
+- **Base URL** — must be OpenAI-compatible, e.g. `https://api.openai.com/v1`
+- **API key** — stored in `localStorage`, sent on each `/api/chat` request
+- **Models** — one per line, edit freely
+- **Default model** — which one to pre-select
+
+Buttons:
+
+- **Test connection** — pings `/v1/models` on the base URL with the key, reports OK/fail
+- **Revoke key** — clears the API key for that profile (falls back to server env)
+- **Set as active** — make this profile the one used for new chats
+- **Import / Export** — back up or restore all settings as JSON
 
 ## Deploy on Vercel
 
