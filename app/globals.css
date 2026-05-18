@@ -1,0 +1,100 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #212121;
+  --color-bg-sidebar: #171717;
+  --color-bg-elev: #2f2f2f;
+  --color-bg-hover: #2a2a2a;
+  --color-border: #2f2f2f;
+  --color-border-strong: #424242;
+  --color-text: #ececec;
+  --color-text-secondary: #b4b4b4;
+  --color-text-dim: #8e8ea0;
+  --color-accent: #ffffff;
+  --color-user-bubble: #2f2f2f;
+}
+
+html,
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: ui-sans-serif, -apple-system, "system-ui", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #3a3a3a;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #4a4a4a;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* code blocks */
+pre {
+  background: #0d0d0d;
+  border: 1px solid #2f2f2f;
+  border-radius: 10px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+}
+code {
+  font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  font-size: 0.92em;
+}
+:not(pre) > code {
+  background: #2a2a2a;
+  padding: 1.5px 5px;
+  border-radius: 4px;
+  color: #f5f5f5;
+}
+
+/* typing cursor */
+.typing-cursor::after {
+  content: "▍";
+  display: inline-block;
+  color: var(--color-text);
+  animation: blink 1.05s steps(1) infinite;
+  margin-left: 2px;
+}
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+/* fade-in for messages */
+.fade-in {
+  animation: fadeIn 0.2s ease-out;
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* native select arrow tweak (dark) */
+select {
+  background-image: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* textarea reset */
+textarea {
+  font-family: inherit;
+}
