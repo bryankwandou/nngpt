@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 interface ChatMessage {
   role: "system" | "user" | "assistant";
