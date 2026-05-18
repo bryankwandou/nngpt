@@ -133,3 +133,10 @@ export function getActiveProfile(s: SettingsState): Profile | null {
   if (!s.activeId) return s.profiles[0] ?? null;
   return s.profiles.find((p) => p.id === s.activeId) ?? s.profiles[0] ?? null;
 }
+
+export function getAccountId(profile: Profile | null): string {
+  const key = (profile?.apiKey ?? "").trim();
+  if (!key) return "server-default";
+  // Use last 24 chars (avoids shared prefix like "sk-clb-") as stable per-account key
+  return "acct_" + key.slice(-24).replace(/[^a-zA-Z0-9]/g, "");
+}

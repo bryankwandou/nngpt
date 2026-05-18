@@ -4,9 +4,13 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+type ContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
 interface ChatMessage {
   role: "system" | "user" | "assistant";
-  content: string;
+  content: string | ContentPart[];
 }
 
 interface ChatRequestBody {
@@ -18,16 +22,16 @@ interface ChatRequestBody {
 
 const SYSTEM_PROMPT =
   "You are nngpt, a helpful and concise assistant. " +
-  "Format code in markdown fenced blocks. Be direct and accurate.";
+  "Format code in markdown fenced blocks with the language name. " +
+  "When given file attachments, analyze them fully. Be direct and accurate.";
 
-function pickKeyAndBase(body: ChatRequestBody) {
-  const clientKey = (body.apiKey || "").trim();
-  const clientBase = (body.baseURL || "").trim();
-  const apiKey = clientKey || process.env.OPENAI_API_KEY || "";
-  const baseURL = (clientBase || process.env.OPENAI_BASE_URL || "https://lb.jatevo.ai/v1").replace(
-    /\/+$/,
-    ""
-  );
+function pickCreds(body: ChatRequestBody) {
+  const apiKey = (body.apiKey || "").trim() || process.env.OPENAI_API_KEY || "";
+  const baseURL = (
+    (body.baseURL || "").trim() ||
+    process.env.OPENAI_BASE_URL ||
+    "https://lb.jatevo.ai/v1"
+  ).replace(/\/+$/, "");
   return { apiKey, baseURL };
 }
 
@@ -50,12 +54,12 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const { apiKey, baseURL } = pickKeyAndBase(body);
+  const { apiKey, baseURL } = pickCreds(body);
   if (!apiKey) {
     return new Response(
       JSON.stringify({
         error:
-          "No API key. Open Settings (gear icon) and paste your key, or configure OPENAI_API_KEY on the server.",
+          "No API key configured. Open ⚙ Settings → set your API key → Test → Save.",
       }),
       { status: 401, headers: { "content-type": "application/json" } }
     );
@@ -94,33 +98,23 @@ export async function POST(req: NextRequest) {
           const { value, done } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
-
           const lines = buffer.split("\n");
           buffer = lines.pop() ?? "";
-
           for (const rawLine of lines) {
             const line = rawLine.trim();
             if (!line || !line.startsWith("data:")) continue;
             const data = line.slice(5).trim();
-            if (data === "[DONE]") {
-              controller.close();
-              return;
-            }
+            if (data === "[DONE]") { controller.close(); return; }
             try {
               const json = JSON.parse(data);
               const delta = json?.choices?.[0]?.delta?.content;
               if (typeof delta === "string" && delta.length > 0) {
                 controller.enqueue(encoder.encode(delta));
               }
-            } catch {
-              // ignore malformed chunks
-            }
+            } catch { /* ignore malformed chunks */ }
           }
         }
-      } catch (err) {
-        controller.error(err);
-        return;
-      }
+      } catch (err) { controller.error(err); return; }
       controller.close();
     },
   });

@@ -98,3 +98,8 @@ select {
 textarea {
   font-family: inherit;
 }
+
+/* attachment chip max width (avoids inline style) */
+.attachment-chip {
+  max-width: 160px;
+}
