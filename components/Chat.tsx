@@ -106,6 +106,8 @@ export default function Chat() {
   const modelMenuRef = useRef<HTMLDivElement>(null);
   // tracks which accountId we last loaded+enabled persist for
   const loadedAccountId = useRef<string | null>(null);
+  // true when the user is at (or near) the bottom of the messages list
+  const atBottomRef = useRef(true);
 
   const activeProfile: Profile | null = useMemo(() => getActiveProfile(settings), [settings]);
   const accountId = session?.accountId ?? "";
@@ -181,10 +183,21 @@ export default function Chat() {
 
   const activeConv = conversations.find((c) => c.id === activeConvId) ?? null;
 
-  // Auto-scroll
+  // Track whether user is at the bottom so we don't hijack manual scrolling
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+    const onScroll = () => {
+      atBottomRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 80;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // Auto-scroll only when already at bottom
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && atBottomRef.current) el.scrollTop = el.scrollHeight;
   }, [activeConv?.messages, isStreaming]);
 
   // Textarea auto-grow
@@ -282,6 +295,22 @@ export default function Chat() {
     setAttachments((p) => p.filter((a) => a.id !== id));
   }, []);
 
+  // Clipboard paste — images and files pasted via Ctrl+V
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const items = Array.from(e.clipboardData.items);
+    const files: File[] = [];
+    for (const item of items) {
+      if (item.kind === "file") {
+        const file = item.getAsFile();
+        if (file) files.push(file);
+      }
+    }
+    if (files.length > 0) {
+      e.preventDefault();
+      addFiles(files);
+    }
+  }, [addFiles]);
+
   /* ── Drag & drop ───────────────────────────────────────────────── */
 
   const onDrop = useCallback((e: React.DragEvent) => {
@@ -323,6 +352,7 @@ export default function Chat() {
     setInput("");
     setAttachments([]);
     setIsStreaming(true);
+    atBottomRef.current = true; // always scroll to bottom when sending
 
     const conv = updated.find((c) => c.id === convId)!;
     const apiMessages = conv.messages
@@ -445,7 +475,7 @@ export default function Chat() {
             </div>
             {conversations.length === 0 && <div className="px-2 py-2 text-xs text-[var(--color-text-dim)]">No chats yet</div>}
             {conversations.map((c) => (
-              <div key={c.id} onClick={() => setActiveConvId(c.id)}
+              <div key={c.id} onClick={() => { setActiveConvId(c.id); atBottomRef.current = true; }}
                 className={`group relative mb-0.5 flex cursor-pointer items-center rounded-lg px-2 py-2 text-sm transition-colors ${c.id === activeConvId ? "bg-[var(--color-bg-hover)] text-[var(--color-text)]" : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text)]"}`}>
                 <span className="truncate pr-6">{c.title || "Untitled"}</span>
                 <button type="button" onClick={(e) => { e.stopPropagation(); deleteConversation(c.id); }}
@@ -553,7 +583,7 @@ export default function Chat() {
                   className="mb-1 rounded-full p-1.5 text-[var(--color-text-secondary)] hover:bg-[#3a3a3a]" title="Attach files">
                   <PlusIcon />
                 </button>
-                <textarea ref={textareaRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onKey}
+                <textarea ref={textareaRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onKey} onPaste={handlePaste}
                   rows={1} placeholder={attachments.length > 0 ? "Add a message (optional)…" : "Message nngpt…"}
                   className="flex-1 resize-none bg-transparent px-1 py-2 text-[15px] leading-6 outline-none placeholder:text-[var(--color-text-dim)]"
                   disabled={isStreaming} />
