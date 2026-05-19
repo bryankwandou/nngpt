@@ -14,6 +14,7 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onChange: (next: SettingsState) => void;
+  accountId: string;
 }
 
 type TestResult =
@@ -22,7 +23,7 @@ type TestResult =
   | { state: "ok"; modelCount?: number }
   | { state: "fail"; error: string };
 
-export default function SettingsModal({ open, onClose, onChange }: Props) {
+export default function SettingsModal({ open, onClose, onChange, accountId }: Props) {
   const [state, setState] = useState<SettingsState>({ profiles: [], activeId: null });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showKey, setShowKey] = useState(false);
@@ -30,7 +31,7 @@ export default function SettingsModal({ open, onClose, onChange }: Props) {
 
   useEffect(() => {
     if (!open) return;
-    const loaded = loadSettings();
+    const loaded = loadSettings(accountId);
     setState(loaded);
     setEditingId(loaded.activeId ?? loaded.profiles[0]?.id ?? null);
     setShowKey(false);
@@ -50,10 +51,10 @@ export default function SettingsModal({ open, onClose, onChange }: Props) {
   const commit = useCallback(
     (next: SettingsState) => {
       setState(next);
-      saveSettings(next);
+      saveSettings(accountId, next);
       onChange(next);
     },
-    [onChange]
+    [onChange, accountId]
   );
 
   const editing = useMemo(
@@ -351,6 +352,7 @@ export default function SettingsModal({ open, onClose, onChange }: Props) {
                 <Field label="Preset (autofills base URL + models)">
                   <select
                     value=""
+                    aria-label="Select preset"
                     onChange={(e) => applyPreset(e.target.value)}
                     className="w-full cursor-pointer rounded-lg border border-[#3a3a3a] bg-[#2a2a2a] px-3 py-2 text-sm text-[#ececec] outline-none focus:border-[#5a5a5a]"
                   >
@@ -421,6 +423,7 @@ export default function SettingsModal({ open, onClose, onChange }: Props) {
                   <Field label="Default model">
                     <select
                       value={editing.defaultModel}
+                      aria-label="Default model"
                       onChange={(e) => updateEditing({ defaultModel: e.target.value })}
                       className="w-full cursor-pointer rounded-lg border border-[#3a3a3a] bg-[#2a2a2a] px-3 py-2 text-sm text-[#ececec] outline-none focus:border-[#5a5a5a]"
                     >

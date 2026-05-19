@@ -83,7 +83,9 @@ export interface SettingsState {
   activeId: string | null;
 }
 
-const STORAGE_KEY = "nngpt:settings:v1";
+function settingsKey(accountId: string) {
+  return `nngpt:settings:${accountId}:v1`;
+}
 
 export function uid(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
@@ -102,10 +104,10 @@ export function defaultState(): SettingsState {
   return { profiles: [def], activeId: def.id };
 }
 
-export function loadSettings(): SettingsState {
+export function loadSettings(accountId: string): SettingsState {
   if (typeof window === "undefined") return { profiles: [], activeId: null };
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(settingsKey(accountId));
     if (!raw) return defaultState();
     const parsed = JSON.parse(raw) as SettingsState;
     if (!parsed.profiles || !Array.isArray(parsed.profiles) || parsed.profiles.length === 0) {
@@ -120,10 +122,10 @@ export function loadSettings(): SettingsState {
   }
 }
 
-export function saveSettings(s: SettingsState): void {
+export function saveSettings(accountId: string, s: SettingsState): void {
   if (typeof window === "undefined") return;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+    localStorage.setItem(settingsKey(accountId), JSON.stringify(s));
   } catch {
     // ignore quota errors
   }
@@ -132,11 +134,4 @@ export function saveSettings(s: SettingsState): void {
 export function getActiveProfile(s: SettingsState): Profile | null {
   if (!s.activeId) return s.profiles[0] ?? null;
   return s.profiles.find((p) => p.id === s.activeId) ?? s.profiles[0] ?? null;
-}
-
-export function getAccountId(profile: Profile | null): string {
-  const key = (profile?.apiKey ?? "").trim();
-  if (!key) return "server-default";
-  // Use last 24 chars (avoids shared prefix like "sk-clb-") as stable per-account key
-  return "acct_" + key.slice(-24).replace(/[^a-zA-Z0-9]/g, "");
 }
