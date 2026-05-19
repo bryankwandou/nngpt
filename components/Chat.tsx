@@ -13,6 +13,7 @@ import {
   loadSession,
   clearSession,
 } from "@/lib/auth";
+import { migrateToAccountStorage } from "@/lib/migrate";
 import {
   detectKind,
   processFileClientSide,
@@ -118,6 +119,8 @@ export default function Chat() {
     ensureDefaultAccount().then(() => {
       const sess = loadSession();
       if (sess) {
+        // Migrate any old API-key-based history to this account
+        migrateToAccountStorage(sess.accountId);
         loadedAccountId.current = sess.accountId;
         const s = loadSettings(sess.accountId);
         setSettings(s);
@@ -219,6 +222,7 @@ export default function Chat() {
 
   // ── Auth handlers ──────────────────────────────────────────────
   const handleLogin = useCallback((sess: Session) => {
+    migrateToAccountStorage(sess.accountId);
     setSession(sess);
   }, []);
 
