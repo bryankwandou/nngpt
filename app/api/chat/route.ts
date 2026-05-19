@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 type ContentPart =
   | { type: "text"; text: string }
@@ -21,9 +21,9 @@ interface ChatRequestBody {
 }
 
 const SYSTEM_PROMPT =
-  "You are nngpt, a helpful and concise assistant. " +
+  "You are nngpt, a helpful assistant. " +
   "Format code in markdown fenced blocks with the language name. " +
-  "When given file attachments, analyze them fully. Be direct and accurate.";
+  "When given file attachments, analyze them fully. Be direct, accurate, and complete — never truncate your response.";
 
 function pickCreds(body: ChatRequestBody) {
   const apiKey = (body.apiKey || "").trim() || process.env.OPENAI_API_KEY || "";
@@ -74,6 +74,7 @@ export async function POST(req: NextRequest) {
     body: JSON.stringify({
       model: model || "gpt-5.4",
       stream: true,
+      max_tokens: 16384,
       messages: [{ role: "system", content: SYSTEM_PROMPT }, ...messages],
     }),
   });
