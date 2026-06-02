@@ -130,6 +130,10 @@ export default function Chat() {
   const [mode, setMode] = useState<ChatMode>("chat");
   const [isRecording, setIsRecording] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
+  const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState("");
+  const [renamingConvId, setRenamingConvId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
 
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -701,10 +705,10 @@ export default function Chat() {
     }
   }, [input, isStreaming, activeConvId, conversations, model, activeProfile]);
 
-  /* ── Send — music/video (coming soon) ────────────────────────── */
-  const sendComingSoon = useCallback(() => {
+  /* ── Send — music / video (AI-assisted) ─────────────────────── */
+  const sendComingSoon = useCallback(async () => {
     const prompt = input.trim();
-    if (!prompt) return;
+    if (!prompt || isStreaming) return;
 
     let convId = activeConvId;
     let baseConvs = conversations;
@@ -719,20 +723,206 @@ export default function Chat() {
       setActiveConvId(c.id);
     }
 
-    const comingSoonMsg = mode === "music"
-      ? "🎵 **Music generation** is coming soon!\n\nFor now, try:\n- [Suno AI](https://suno.ai) — AI music generation\n- [Udio](https://udio.com) — AI music creation\n- [Stable Audio](https://stability.ai/stable-audio) — Stability AI music"
-      : "🎬 **Video generation** is coming soon!\n\nFor now, try:\n- [RunwayML](https://runwayml.com) — AI video generation\n- [Pika](https://pika.art) — AI video creation\n- [Sora](https://openai.com/sora) — OpenAI video model";
+    const systemByMode: Record<string, string> = {
+      music: "You are an expert music producer and AI music prompt engineer. When given a music or audio request, respond with: 1) A ready-to-use Suno AI prompt, 2) Genre/mood/instrument suggestions, 3) A brief creative description. Be specific and creative.",
+      video: "You are an expert video director and AI video prompt engineer. When given a video request, respond with: 1) A detailed Runway ML / Sora-style video prompt, 2) Shot composition and camera movement suggestions, 3) Style and mood notes. Be visual and specific.",
+    };
+    const system = systemByMode[mode] ?? "";
+    const userContent = `${currentMode.emoji} ${prompt}`;
+    const userMsg: Message = { id: uid(), role: "user", content: userContent, mode };
+    const assistantMsg: Message = { id: uid(), role: "assistant", content: "", mode };
 
-    const userMsg: Message = { id: uid(), role: "user", content: `${currentMode.emoji} ${prompt}`, mode };
-    const assistantMsg: Message = { id: uid(), role: "assistant", content: comingSoonMsg, mode };
-
-    setConversations(baseConvs.map(c =>
+    const updated = baseConvs.map(c =>
       c.id === convId
-        ? { ...c, messages: [...c.messages, userMsg, assistantMsg] }
+        ? { ...c, title: c.messages.length === 0 ? `${currentMode.emoji} ${prompt.slice(0, 35)}` : c.title, messages: [...c.messages, userMsg, assistantMsg] }
         : c
-    ));
+    );
+    setConversations(updated);
     setInput("");
-  }, [input, mode, currentMode, activeConvId, conversations, model]);
+    setIsStreaming(true);
+    atBottomRef.current = true;
+
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+
+    try {
+      const apiMessages = [
+        ...(system ? [{ role: "system" as const, content: system }] : []),
+        { role: "user" as const, content: userContent },
+      ];
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ messages: apiMessages, model, apiKey: activeProfile?.apiKey ?? "", baseURL: activeProfile?.baseURL ?? "" }),
+        signal: ctrl.signal,
+      });
+      if (!res.ok || !res.body) {
+        const t = await res.text().catch(() => "Unknown error");
+        setConversations(prev => prev.map(c => c.id === convId
+          ? { ...c, messages: c.messages.map(m => m.id === assistantMsg.id ? { ...m, content: `⚠️ ${t}` } : m) }
+          : c
+        ));
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let acc = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        acc += decoder.decode(value, { stream: true });
+        setConversations(prev => prev.map(c => c.id === convId
+          ? { ...c, messages: c.messages.map(m => m.id === assistantMsg.id ? { ...m, content: acc } : m) }
+          : c
+        ));
+      }
+    } catch (err: unknown) {
+      if ((err as { name?: string }).name !== "AbortError") {
+        const msg = err instanceof Error ? err.message : "Network error";
+        setConversations(prev => prev.map(c => c.id === convId
+          ? { ...c, messages: c.messages.map(m => m.id === assistantMsg.id ? { ...m, content: `⚠️ ${msg}` } : m) }
+          : c
+        ));
+      }
+    } finally {
+      setIsStreaming(false);
+      abortRef.current = null;
+    }
+  }, [input, mode, currentMode, activeConvId, conversations, model, activeProfile, isStreaming]);
+
+  /* ── Streaming helper ────────────────────────────────────────── */
+  const streamIntoMsg = useCallback(async (
+    convId: string,
+    assistantMsgId: string,
+    apiMessages: { role: "system" | "user" | "assistant"; content: string | import("@/lib/attachments").ContentPart[] }[],
+  ) => {
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    setIsStreaming(true);
+    atBottomRef.current = true;
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ messages: apiMessages, model, apiKey: activeProfile?.apiKey ?? "", baseURL: activeProfile?.baseURL ?? "" }),
+        signal: ctrl.signal,
+      });
+      if (!res.ok || !res.body) {
+        const t = await res.text().catch(() => "Error");
+        let parsed = t;
+        try { const j = JSON.parse(t); if (j?.error) parsed = j.error; } catch {}
+        setConversations(prev => prev.map(c => c.id === convId
+          ? { ...c, messages: c.messages.map(m => m.id === assistantMsgId ? { ...m, content: `⚠️ ${parsed}` } : m) }
+          : c
+        ));
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let acc = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        acc += decoder.decode(value, { stream: true });
+        setConversations(prev => prev.map(c => c.id === convId
+          ? { ...c, messages: c.messages.map(m => m.id === assistantMsgId ? { ...m, content: acc } : m) }
+          : c
+        ));
+      }
+    } catch (err: unknown) {
+      if ((err as { name?: string }).name !== "AbortError") {
+        const msg = err instanceof Error ? err.message : "Network error";
+        setConversations(prev => prev.map(c => c.id === convId
+          ? { ...c, messages: c.messages.map(m => m.id === assistantMsgId ? { ...m, content: `⚠️ ${msg}` } : m) }
+          : c
+        ));
+      }
+    } finally {
+      setIsStreaming(false);
+      abortRef.current = null;
+    }
+  }, [model, activeProfile]);
+
+  /* ── Regenerate last response ─────────────────────────────────── */
+  const regenerate = useCallback(async () => {
+    if (!activeConvId || isStreaming) return;
+    const conv = conversations.find(c => c.id === activeConvId);
+    if (!conv || conv.messages.length < 2) return;
+
+    const msgs = conv.messages;
+    // Find the last assistant message index
+    let lastAsstIdx = -1;
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === "assistant") { lastAsstIdx = i; break; }
+    }
+    if (lastAsstIdx === -1) return;
+
+    const newId = uid();
+    const updatedMessages = [
+      ...msgs.slice(0, lastAsstIdx),
+      { id: newId, role: "assistant" as const, content: "" },
+    ];
+    const updatedConvs = conversations.map(c =>
+      c.id === activeConvId ? { ...c, messages: updatedMessages } : c
+    );
+    setConversations(updatedConvs);
+
+    const apiMessages = updatedMessages
+      .filter(m => m.id !== newId)
+      .map(m => ({ role: m.role, content: buildMessageContent(m.content, (m.attachments ?? []) as Attachment[]) }));
+
+    await streamIntoMsg(activeConvId, newId, apiMessages);
+  }, [activeConvId, conversations, isStreaming, streamIntoMsg]);
+
+  /* ── Edit a user message and re-send ─────────────────────────── */
+  const startEditMessage = useCallback((msg: Message) => {
+    setEditingMsgId(msg.id);
+    setEditContent(msg.content);
+  }, []);
+
+  const cancelEdit = useCallback(() => {
+    setEditingMsgId(null);
+    setEditContent("");
+  }, []);
+
+  const submitEdit = useCallback(async () => {
+    if (!editingMsgId || !activeConvId || isStreaming) return;
+    const conv = conversations.find(c => c.id === activeConvId);
+    if (!conv) return;
+    const msgIdx = conv.messages.findIndex(m => m.id === editingMsgId);
+    if (msgIdx === -1) return;
+
+    const editedMsg = { ...conv.messages[msgIdx], content: editContent };
+    const newAsstId = uid();
+    const newAssistant: Message = { id: newAsstId, role: "assistant", content: "" };
+    const updatedMessages = [...conv.messages.slice(0, msgIdx), editedMsg, newAssistant];
+
+    setConversations(prev => prev.map(c =>
+      c.id === activeConvId ? { ...c, messages: updatedMessages } : c
+    ));
+    setEditingMsgId(null);
+    setEditContent("");
+
+    const apiMessages = updatedMessages
+      .filter(m => m.id !== newAsstId)
+      .map(m => ({ role: m.role, content: buildMessageContent(m.content, (m.attachments ?? []) as Attachment[]) }));
+
+    await streamIntoMsg(activeConvId, newAsstId, apiMessages);
+  }, [editingMsgId, editContent, activeConvId, conversations, isStreaming, streamIntoMsg]);
+
+  /* ── Rename conversation ─────────────────────────────────────── */
+  const startRename = useCallback((conv: Conversation) => {
+    setRenamingConvId(conv.id);
+    setRenameValue(conv.title || "");
+  }, []);
+
+  const submitRename = useCallback((id: string) => {
+    setConversations(prev => prev.map(c =>
+      c.id === id ? { ...c, title: renameValue.trim() || "Chat" } : c
+    ));
+    setRenamingConvId(null);
+    setRenameValue("");
+  }, [renameValue]);
 
   /* ── Unified send dispatcher ─────────────────────────────────── */
   const send = useCallback(() => {
@@ -876,6 +1066,7 @@ export default function Chat() {
               <div
                 key={c.id}
                 onClick={() => {
+                  if (renamingConvId === c.id) return;
                   setActiveConvId(c.id);
                   atBottomRef.current = true;
                   if (window.innerWidth < 768) setSidebarOpen(false);
@@ -886,14 +1077,48 @@ export default function Chat() {
                     : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text)]"
                 }`}
               >
-                <span className="truncate pr-6">{c.title || "Untitled"}</span>
-                <button
-                  type="button"
-                  onClick={e => { e.stopPropagation(); deleteConversation(c.id); }}
-                  className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 text-[var(--color-text-dim)] opacity-0 transition-opacity hover:bg-[var(--color-bg-elev)] hover:text-[var(--color-danger)] group-hover:opacity-100"
-                  aria-label="Delete">
-                  <TrashIcon />
-                </button>
+                {renamingConvId === c.id ? (
+                  <input
+                    type="text"
+                    value={renameValue}
+                    onChange={e => setRenameValue(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter") { e.preventDefault(); submitRename(c.id); }
+                      if (e.key === "Escape") { setRenamingConvId(null); setRenameValue(""); }
+                    }}
+                    onBlur={() => submitRename(c.id)}
+                    className="conv-rename-input flex-1 pr-1"
+                    aria-label="Rename conversation"
+                    placeholder="Chat title"
+                    autoFocus
+                    onClick={e => e.stopPropagation()}
+                  />
+                ) : (
+                  <>
+                    <span
+                      className="truncate pr-12"
+                      onDoubleClick={e => { e.stopPropagation(); startRename(c); }}
+                    >
+                      {c.title || "Untitled"}
+                    </span>
+                    <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                      <button
+                        type="button"
+                        onClick={e => { e.stopPropagation(); startRename(c); }}
+                        className="rounded p-1 text-[var(--color-text-dim)] hover:bg-[var(--color-bg-elev)] hover:text-[var(--color-text-secondary)]"
+                        aria-label="Rename">
+                        <PencilSmIcon />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={e => { e.stopPropagation(); deleteConversation(c.id); }}
+                        className="rounded p-1 text-[var(--color-text-dim)] hover:bg-[var(--color-bg-elev)] hover:text-[var(--color-danger)]"
+                        aria-label="Delete">
+                        <TrashIcon />
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             ))}
           </div>
@@ -1002,16 +1227,27 @@ export default function Chat() {
             />
           ) : (
             <div className="mx-auto max-w-3xl px-3 py-6 md:px-4">
-              {activeConv.messages.map((m, i) => (
-                <MessageBubble
-                  key={m.id}
-                  role={m.role}
-                  content={m.content}
-                  attachments={m.attachments}
-                  streaming={isStreaming && i === activeConv.messages.length - 1 && m.role === "assistant"}
-                  onCopy={() => copyMessage(m.content)}
-                />
-              ))}
+              {activeConv.messages.map((m, i) => {
+                const isLastAsst = !isStreaming && m.role === "assistant" && i === activeConv.messages.length - 1;
+                const isStreamingThis = isStreaming && i === activeConv.messages.length - 1 && m.role === "assistant";
+                return (
+                  <MessageBubble
+                    key={m.id}
+                    role={m.role}
+                    content={m.content}
+                    attachments={m.attachments}
+                    streaming={isStreamingThis}
+                    isEditing={editingMsgId === m.id}
+                    editContent={editContent}
+                    onEditContentChange={setEditContent}
+                    onStartEdit={() => startEditMessage(m)}
+                    onSubmitEdit={submitEdit}
+                    onCancelEdit={cancelEdit}
+                    onCopy={() => copyMessage(m.content)}
+                    onRegenerate={isLastAsst && mode === "chat" ? regenerate : undefined}
+                  />
+                );
+              })}
               {isStreaming && activeConv.messages[activeConv.messages.length - 1]?.role === "user" && (
                 <MessageBubble role="assistant" content="" streaming onCopy={() => {}} />
               )}
@@ -1119,7 +1355,10 @@ export default function Chat() {
             </div>
 
             <div className="mt-1.5 text-center text-[11px] text-[var(--color-text-dim)]">
-              nngpt can make mistakes. Verify important information.
+              nngpt can make mistakes. Verify important info.{" "}
+              <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline decoration-dotted opacity-60 hover:opacity-100">Privacy</a>
+              {" · "}
+              <a href="/terms" target="_blank" rel="noopener noreferrer" className="underline decoration-dotted opacity-60 hover:opacity-100">Terms</a>
             </div>
           </div>
         </div>
@@ -1169,9 +1408,16 @@ function AttachmentChip({ attachment: a, onRemove }: { attachment: Attachment; o
 
 /* ─── MessageBubble ──────────────────────────────────────────────── */
 
-function MessageBubble({ role, content, attachments, streaming, onCopy }: {
+function MessageBubble({ role, content, attachments, streaming, onCopy, onRegenerate, onStartEdit, onSubmitEdit, onCancelEdit, isEditing, editContent, onEditContentChange }: {
   role: "user" | "assistant"; content: string; attachments?: StoredAttachment[];
   streaming?: boolean; onCopy: () => void;
+  onRegenerate?: () => void;
+  onStartEdit?: () => void;
+  onSubmitEdit?: () => void;
+  onCancelEdit?: () => void;
+  isEditing?: boolean;
+  editContent?: string;
+  onEditContentChange?: (v: string) => void;
 }) {
   const [copied, setCopied] = useState(false);
   const isUser = role === "user";
@@ -1181,17 +1427,60 @@ function MessageBubble({ role, content, attachments, streaming, onCopy }: {
 
   if (isUser) {
     return (
-      <div className="fade-in mb-6 flex justify-end">
+      <div className="fade-in group mb-6 flex justify-end">
         <div className="max-w-[min(680px,calc(100vw-80px))]">
           {hasAttachments && (
             <div className="mb-2 flex flex-wrap justify-end gap-1.5">
               {attachments!.map(a => <AttachmentDisplay key={a.id} attachment={a} />)}
             </div>
           )}
-          {content && (
-            <div className="rounded-2xl bg-[var(--color-user-bubble)] px-4 py-2.5 text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap border border-[var(--color-border)]">
-              {content}
+          {isEditing ? (
+            <div className="flex flex-col gap-2">
+              <textarea
+                value={editContent ?? ""}
+                onChange={e => onEditContentChange?.(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSubmitEdit?.(); }
+                  if (e.key === "Escape") onCancelEdit?.();
+                }}
+                rows={3}
+                aria-label="Edit message"
+                className="w-full resize-none rounded-2xl border border-[var(--color-accent)] bg-[var(--color-bg-elev)] px-4 py-2.5 text-[15px] text-[var(--color-text)] outline-none"
+                autoFocus
+              />
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={onCancelEdit}
+                  className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-[13px] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]">
+                  Cancel
+                </button>
+                <button type="button" onClick={onSubmitEdit}
+                  className="rounded-lg bg-[var(--color-accent)] px-3 py-1.5 text-[13px] font-medium text-white hover:opacity-90">
+                  Save & Send
+                </button>
+              </div>
             </div>
+          ) : (
+            <>
+              {content && (
+                <div className="rounded-2xl bg-[var(--color-user-bubble)] px-4 py-2.5 text-[15px] leading-relaxed text-[var(--color-text)] whitespace-pre-wrap border border-[var(--color-border)]">
+                  {content}
+                </div>
+              )}
+              <div className="msg-actions mt-1 flex justify-end gap-1">
+                <button type="button" onClick={handleCopy}
+                  className="rounded-md p-1.5 text-[var(--color-text-dim)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
+                  title={copied ? "Copied!" : "Copy"} aria-label="Copy">
+                  {copied ? <CheckIcon /> : <CopyIcon />}
+                </button>
+                {onStartEdit && (
+                  <button type="button" onClick={onStartEdit}
+                    className="rounded-md p-1.5 text-[var(--color-text-dim)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
+                    title="Edit message" aria-label="Edit message">
+                    <PencilSmIcon />
+                  </button>
+                )}
+              </div>
+            </>
           )}
         </div>
       </div>
@@ -1199,7 +1488,7 @@ function MessageBubble({ role, content, attachments, streaming, onCopy }: {
   }
 
   return (
-    <div className="fade-in mb-6 flex gap-3">
+    <div className="fade-in group mb-6 flex gap-3">
       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[var(--color-border)] bg-[var(--color-bg)] mt-0.5">
         <SparkleIcon />
       </div>
@@ -1209,12 +1498,17 @@ function MessageBubble({ role, content, attachments, streaming, onCopy }: {
           {streaming && <span className="typing-cursor" />}
         </div>
         {!streaming && content.length > 0 && (
-          <div className="mt-1.5 flex items-center gap-1">
+          <div className="msg-actions mt-1.5 flex items-center gap-1">
             <button type="button" onClick={handleCopy}
               className="rounded-md p-1.5 text-[var(--color-text-dim)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
               title={copied ? "Copied!" : "Copy"} aria-label="Copy">
               {copied ? <CheckIcon /> : <CopyIcon />}
             </button>
+            {onRegenerate && (
+              <button type="button" onClick={onRegenerate} className="regen-btn" aria-label="Regenerate response">
+                <RegenIcon /><span>Regenerate</span>
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -1311,3 +1605,5 @@ function SunIcon() { return <svg width="18" height="18" viewBox="0 0 24 24" fill
 function MoonIcon() { return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>; }
 function CameraIcon() { return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" /><circle cx="12" cy="13" r="4" /></svg>; }
 function MicIcon({ active }: { active?: boolean }) { return <svg width="18" height="18" viewBox="0 0 24 24" fill={active ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="23" /><line x1="8" y1="23" x2="16" y2="23" /></svg>; }
+function PencilSmIcon() { return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>; }
+function RegenIcon() { return <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 .49-4.95" /></svg>; }

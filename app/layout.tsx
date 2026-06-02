@@ -12,9 +12,14 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  // Allow pinch-zoom (accessibility) but prevent layout-breaking zoom on input focus.
+  // Input font-size is set to 16px on mobile (in globals.css) to prevent iOS auto-zoom.
+  minimumScale: 1,
   viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#212121" },
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+  ],
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -19,6 +19,13 @@
   --color-danger: #ff6b6b;
   --color-success: #10a37f;
   --color-recording: #ef4444;
+
+  /* Syntax highlight — dark */
+  --hl-keyword: #c792ea;
+  --hl-string: #c3e88d;
+  --hl-comment: #546e7a;
+  --hl-number: #f78c6c;
+  --hl-function: #82aaff;
 }
 
 /* ─── Light theme override ──────────────────────────────────── */
@@ -40,6 +47,13 @@
   --color-danger: #dc2626;
   --color-success: #10a37f;
   --color-recording: #dc2626;
+
+  /* Syntax highlight — light */
+  --hl-keyword: #7c3aed;
+  --hl-string: #059669;
+  --hl-comment: #9ca3af;
+  --hl-number: #d97706;
+  --hl-function: #2563eb;
 }
 
 /* ─── Base ───────────────────────────────────────────────────── */
@@ -273,4 +287,115 @@ textarea {
     width: 0;
     height: 0;
   }
+}
+
+/* ─── Syntax highlighting tokens ────────────────────────────── */
+.hl-keyword  { color: var(--hl-keyword);  font-weight: 600; }
+.hl-string   { color: var(--hl-string); }
+.hl-comment  { color: var(--hl-comment);  font-style: italic; }
+.hl-number   { color: var(--hl-number); }
+.hl-function { color: var(--hl-function); }
+
+/* ─── Code block (from Markdown.tsx) ────────────────────────── */
+.code-block code {
+  font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  color: var(--color-code-text);
+  font-size: 13px;
+}
+
+/* Overrides pre base style for code blocks rendered by CodeBlock component */
+.code-pre {
+  margin: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  color: var(--color-code-text);
+}
+
+/* ─── iOS / Mobile viewport improvements ─────────────────────── */
+
+/* Prevent double-tap zoom while keeping pinch-zoom */
+html {
+  touch-action: manipulation;
+}
+
+/* Improve tap highlighting */
+button, a, [role="button"] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* iOS input font-size (prevent zoom on focus) */
+@media (max-width: 767px) {
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Improve input keyboard behavior on iOS */
+textarea {
+  -webkit-appearance: none;
+}
+
+/* ─── Conversation rename input ──────────────────────────────── */
+.conv-rename-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--color-text);
+  font-size: 0.875rem;
+  width: 100%;
+  padding: 0;
+  font-family: inherit;
+}
+.conv-rename-input:focus {
+  outline: none;
+}
+
+/* ─── Regenerate button ──────────────────────────────────────── */
+.regen-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-dim);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.regen-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+  border-color: var(--color-border-strong);
+}
+
+/* ─── Mobile header tweaks ───────────────────────────────────── */
+@media (max-width: 480px) {
+  /* Shorter model label on very small screens */
+  .model-label-full { display: none; }
+  .model-label-short { display: inline; }
+}
+@media (min-width: 481px) {
+  .model-label-full { display: inline; }
+  .model-label-short { display: none; }
+}
+
+/* ─── Message actions hover reveal ──────────────────────────── */
+.msg-actions {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.group:hover .msg-actions,
+.msg-actions:focus-within {
+  opacity: 1;
+}
+@media (pointer: coarse) {
+  /* Always show on touch devices */
+  .msg-actions { opacity: 1; }
 }
