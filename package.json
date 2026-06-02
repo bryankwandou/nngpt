@@ -9,7 +9,9 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
     "@types/pdf-parse": "^1.1.5",
+    "@vercel/blob": "^2.4.0",
     "mammoth": "^1.12.0",
     "next": "^15.5.18",
     "pdf-parse": "^2.4.5",

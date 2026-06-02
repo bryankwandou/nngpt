@@ -1,5 +1,6 @@
 @import "tailwindcss";
 
+/* ─── Dark theme (default) ──────────────────────────────────── */
 @theme {
   --color-bg: #212121;
   --color-bg-sidebar: #171717;
@@ -10,62 +11,97 @@
   --color-text: #ececec;
   --color-text-secondary: #b4b4b4;
   --color-text-dim: #8e8ea0;
-  --color-accent: #ffffff;
+  --color-accent: #10a37f;
   --color-user-bubble: #2f2f2f;
+  --color-code-bg: #0d0d0d;
+  --color-code-border: #2f2f2f;
+  --color-code-text: #f5f5f5;
+  --color-danger: #ff6b6b;
+  --color-success: #10a37f;
+  --color-recording: #ef4444;
 }
 
+/* ─── Light theme override ──────────────────────────────────── */
+[data-theme="light"] {
+  --color-bg: #ffffff;
+  --color-bg-sidebar: #f7f7f8;
+  --color-bg-elev: #f0f0f0;
+  --color-bg-hover: #ebebeb;
+  --color-border: #e5e5e5;
+  --color-border-strong: #d0d0d0;
+  --color-text: #0d0d0d;
+  --color-text-secondary: #444444;
+  --color-text-dim: #6e6e80;
+  --color-accent: #10a37f;
+  --color-user-bubble: #f4f4f5;
+  --color-code-bg: #f6f6f7;
+  --color-code-border: #e0e0e0;
+  --color-code-text: #1a1a2e;
+  --color-danger: #dc2626;
+  --color-success: #10a37f;
+  --color-recording: #dc2626;
+}
+
+/* ─── Base ───────────────────────────────────────────────────── */
 html,
 body {
   background: var(--color-bg);
   color: var(--color-text);
-  font-family: ui-sans-serif, -apple-system, "system-ui", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-family: ui-sans-serif, -apple-system, "system-ui", "Segoe UI", "Helvetica Neue",
+    Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  /* Prevent overscroll bounce on iOS */
+  overscroll-behavior: none;
 }
 
 * {
   box-sizing: border-box;
 }
 
-/* scrollbar */
+/* ─── Scrollbar ─────────────────────────────────────────────── */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #3a3a3a;
+  background: var(--color-border-strong);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #4a4a4a;
+  background: var(--color-text-dim);
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 
-/* code blocks */
+/* ─── Code blocks ────────────────────────────────────────────── */
 pre {
-  background: #0d0d0d;
-  border: 1px solid #2f2f2f;
+  background: var(--color-code-bg);
+  border: 1px solid var(--color-code-border);
   border-radius: 10px;
   padding: 12px 14px;
   overflow-x: auto;
   font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   font-size: 13px;
   line-height: 1.6;
-}
-code {
-  font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
-  font-size: 0.92em;
-}
-:not(pre) > code {
-  background: #2a2a2a;
-  padding: 1.5px 5px;
-  border-radius: 4px;
-  color: #f5f5f5;
+  color: var(--color-code-text);
 }
 
-/* typing cursor */
+code {
+  font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+
+:not(pre) > code {
+  background: var(--color-bg-hover);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+
+/* ─── Animations ─────────────────────────────────────────────── */
 .typing-cursor::after {
   content: "▍";
   display: inline-block;
@@ -73,33 +109,168 @@ code {
   animation: blink 1.05s steps(1) infinite;
   margin-left: 2px;
 }
+
 @keyframes blink {
   0%, 50% { opacity: 1; }
   51%, 100% { opacity: 0; }
 }
 
-/* fade-in for messages */
 .fade-in {
-  animation: fadeIn 0.2s ease-out;
-}
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(3px); }
-  to { opacity: 1; transform: translateY(0); }
+  animation: fadeIn 0.18s ease-out;
 }
 
-/* native select arrow tweak (dark) */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.slide-in {
+  animation: slideIn 0.2s ease-out;
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Recording pulse */
+@keyframes recordPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  50%       { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+}
+.recording-pulse {
+  animation: recordPulse 1.2s ease-in-out infinite;
+}
+
+/* ─── Select reset ───────────────────────────────────────────── */
 select {
   background-image: none;
   -webkit-appearance: none;
   appearance: none;
 }
 
-/* textarea reset */
+/* ─── Textarea ───────────────────────────────────────────────── */
 textarea {
   font-family: inherit;
 }
 
-/* attachment chip max width (avoids inline style) */
+/* ─── Attachment chip ────────────────────────────────────────── */
 .attachment-chip {
   max-width: 160px;
+}
+
+/* ─── Mobile sidebar overlay ─────────────────────────────────── */
+.sidebar-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(0, 0, 0, 0.5);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+/* ─── Mode toolbar ───────────────────────────────────────────── */
+.mode-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.mode-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.mode-btn.active {
+  background: var(--color-bg-elev);
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+}
+
+/* ─── Light mode code adjustments ────────────────────────────── */
+[data-theme="light"] pre {
+  background: var(--color-code-bg);
+  border-color: var(--color-code-border);
+}
+
+[data-theme="light"] :not(pre) > code {
+  background: #e8e8ec;
+  color: #1a1a2e;
+  border-color: #d0d0d8;
+}
+
+/* ─── Camera modal overlay ───────────────────────────────────── */
+.camera-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+/* ─── Safe area for mobile (notch / home bar) ────────────────── */
+.pb-safe {
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+.pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+
+/* ─── Modal max-height (dvh for mobile browsers) ────────────── */
+.modal-body {
+  max-height: 90dvh;
+}
+
+/* ─── Input field base (shared across modal forms) ──────────── */
+.input-field {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-elev);
+  padding: 8px 12px;
+  font-size: 14px;
+  color: var(--color-text);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.input-field:focus {
+  border-color: var(--color-border-strong);
+}
+
+/* ─── scrollbar-hide utility ─────────────────────────────────── */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* ─── Touch targets (minimum 44px) ──────────────────────────── */
+@media (pointer: coarse) {
+  button {
+    min-height: 36px;
+    min-width: 36px;
+  }
+}
+
+/* ─── Scrollbar hide on mobile ────────────────────────────────── */
+@media (max-width: 767px) {
+  ::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
 }

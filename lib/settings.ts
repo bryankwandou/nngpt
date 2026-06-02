@@ -22,10 +22,30 @@ export const PRESETS: PresetTemplate[] = [
     defaultModel: "gpt-5.4",
   },
   {
+    name: "Jatevo Direct",
+    baseURL: "https://jatevo.id/api/open/v1/inference",
+    models: ["qwen3.5-plus", "qwen-plus", "qwen-max", "qwen-turbo"],
+    defaultModel: "qwen3.5-plus",
+  },
+  {
     name: "OpenAI",
     baseURL: "https://api.openai.com/v1",
-    models: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o1", "o1-mini"],
+    models: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o1", "o1-mini", "o3-mini"],
     defaultModel: "gpt-4o-mini",
+  },
+  {
+    name: "Qwen (Alibaba Cloud)",
+    baseURL: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+    models: [
+      "qwen-max",
+      "qwen-plus",
+      "qwen-turbo",
+      "qwen-long",
+      "qwen2.5-72b-instruct",
+      "qwen2.5-coder-32b-instruct",
+      "qwq-plus",
+    ],
+    defaultModel: "qwen-plus",
   },
   {
     name: "Groq",
@@ -46,6 +66,7 @@ export const PRESETS: PresetTemplate[] = [
       "anthropic/claude-3.5-sonnet",
       "google/gemini-2.0-flash-exp",
       "meta-llama/llama-3.3-70b-instruct",
+      "deepseek/deepseek-chat",
     ],
     defaultModel: "openai/gpt-4o-mini",
   },
@@ -134,4 +155,64 @@ export function saveSettings(accountId: string, s: SettingsState): void {
 export function getActiveProfile(s: SettingsState): Profile | null {
   if (!s.activeId) return s.profiles[0] ?? null;
   return s.profiles.find((p) => p.id === s.activeId) ?? s.profiles[0] ?? null;
+}
+
+// ── Server sync helpers (api keys never leave the client) ─────────
+
+type ServerSettings = { profiles: Omit<Profile, "apiKey">[]; activeId: string | null };
+
+/** Push current settings to server (strips API keys before sending). */
+export async function syncSettingsToServer(
+  accountId: string,
+  sessionId: string,
+  state: SettingsState
+): Promise<void> {
+  const stripped: ServerSettings = {
+    activeId: state.activeId,
+    profiles: state.profiles.map(({ apiKey: _k, ...rest }) => rest),
+  };
+  await fetch("/api/settings", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${sessionId}`,
+    },
+    body: JSON.stringify({ accountId, settings: stripped }),
+  });
+}
+
+/** Fetch settings from server and merge with local (preserving local API keys). */
+export async function fetchAndMergeSettings(
+  accountId: string,
+  sessionId: string,
+  localState: SettingsState
+): Promise<SettingsState> {
+  try {
+    const res = await fetch(`/api/settings?accountId=${accountId}`, {
+      headers: { authorization: `Bearer ${sessionId}` },
+    });
+    if (!res.ok) return localState;
+    const data = await res.json() as { settings?: ServerSettings | null };
+    const server = data.settings;
+    if (!server || !Array.isArray(server.profiles) || server.profiles.length === 0) {
+      return localState;
+    }
+
+    // Build map of local profiles by id to preserve their apiKeys
+    const localById = new Map(localState.profiles.map(p => [p.id, p]));
+
+    const merged: Profile[] = server.profiles.map(sp => ({
+      ...sp,
+      apiKey: localById.get(sp.id)?.apiKey ?? "", // keep local key if exists
+    }));
+
+    // Ensure activeId is valid in merged list
+    const activeId = merged.some(p => p.id === server.activeId)
+      ? server.activeId
+      : merged[0]?.id ?? null;
+
+    return { profiles: merged, activeId };
+  } catch {
+    return localState;
+  }
 }

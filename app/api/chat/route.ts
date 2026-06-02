@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { checkRateLimit, getIpKey } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,7 +27,9 @@ const SYSTEM_PROMPT =
   "When given file attachments, analyze them fully. Be direct, accurate, and complete — never truncate your response.";
 
 function pickCreds(body: ChatRequestBody) {
-  const apiKey = (body.apiKey || "").trim() || process.env.OPENAI_API_KEY || "";
+  const apiKey =
+    (body.apiKey || "").trim() ||
+    process.env.OPENAI_API_KEY || "";
   const baseURL = (
     (body.baseURL || "").trim() ||
     process.env.OPENAI_BASE_URL ||
@@ -36,6 +39,32 @@ function pickCreds(body: ChatRequestBody) {
 }
 
 export async function POST(req: NextRequest) {
+  // Rate limit: 30 requests per minute per IP
+  const rl = checkRateLimit(getIpKey(req, "chat"), 30, 60_000);
+  if (!rl.ok) {
+    return new Response(
+      JSON.stringify({ error: `Rate limit exceeded. Try again in ${rl.retryAfter}s.` }),
+      { status: 429, headers: { "content-type": "application/json", "Retry-After": String(rl.retryAfter) } }
+    );
+  }
+
+  // Block requests not originating from this app's own frontend
+  const origin = req.headers.get("origin") ?? "";
+  const referer = req.headers.get("referer") ?? "";
+  const allowed = [
+    "https://nngpt.vercel.app",
+    "http://localhost:3000",
+    "http://localhost:3010",
+    "https://nngpt-",
+  ];
+  const isAllowed = allowed.some(o => origin.startsWith(o) || referer.startsWith(o));
+  if (!isAllowed) {
+    return new Response(JSON.stringify({ error: "Forbidden" }), {
+      status: 403,
+      headers: { "content-type": "application/json" },
+    });
+  }
+
   let body: ChatRequestBody;
   try {
     body = (await req.json()) as ChatRequestBody;
