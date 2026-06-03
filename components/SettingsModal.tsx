@@ -113,6 +113,18 @@ export default function SettingsModal({ open, onClose, onChange, accountId }: Pr
     });
   }, [editing, updateEditing]);
 
+  /** Merge latest preset models into the current profile (keeps existing models + apiKey) */
+  const syncModelsFromPreset = useCallback(() => {
+    if (!editing) return;
+    const profileBase = editing.baseURL.replace(/\/+$/, "").toLowerCase();
+    const preset = PRESETS.find(p => p.baseURL.replace(/\/+$/, "").toLowerCase() === profileBase);
+    if (!preset) { alert("No matching preset found for this base URL."); return; }
+    const existing = new Set(editing.models);
+    const newModels = preset.models.filter(m => !existing.has(m));
+    if (newModels.length === 0) { alert("Models already up to date!"); return; }
+    updateEditing({ models: [...editing.models, ...newModels] });
+  }, [editing, updateEditing]);
+
   const runTest = useCallback(async () => {
     if (!editing) return;
     setTest({ state: "loading" });
@@ -340,6 +352,11 @@ export default function SettingsModal({ open, onClose, onChange, accountId }: Pr
                   <button type="button" onClick={runTest} disabled={test.state === "loading"}
                     className="rounded-lg bg-[var(--color-bg-hover)] px-4 py-2 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-border-strong)] disabled:cursor-not-allowed disabled:opacity-50">
                     {test.state === "loading" ? "Testing…" : "Test connection"}
+                  </button>
+                  <button type="button" onClick={syncModelsFromPreset}
+                    title="Add new models from the matching preset (e.g. Qwen3 models)"
+                    className="rounded-lg border border-[#10a37f]/40 bg-transparent px-4 py-2 text-sm font-medium text-[#10a37f] hover:bg-[#10a37f]/10">
+                    ⟳ Sync models
                   </button>
                   <button type="button" onClick={revokeKey} disabled={!editing.apiKey}
                     className="rounded-lg border border-red-800/50 bg-transparent px-4 py-2 text-sm font-medium text-red-400 hover:bg-red-900/20 disabled:cursor-not-allowed disabled:opacity-40">

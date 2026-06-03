@@ -147,6 +147,26 @@ export function defaultState(): SettingsState {
   return { profiles: [def], activeId: def.id };
 }
 
+/** Auto-merge new models from matching preset into an existing profile (non-destructive) */
+function mergePresetsIntoProfiles(profiles: Profile[]): { profiles: Profile[]; changed: boolean } {
+  let changed = false;
+  const merged = profiles.map(p => {
+    // Find matching preset by baseURL (normalize: remove trailing slashes)
+    const profileBase = p.baseURL.replace(/\/+$/, "").toLowerCase();
+    const preset = PRESETS.find(pr => pr.baseURL.replace(/\/+$/, "").toLowerCase() === profileBase);
+    if (!preset || preset.models.length === 0) return p;
+
+    // Add any preset models not already in the profile
+    const existing = new Set(p.models);
+    const newModels = preset.models.filter(m => !existing.has(m));
+    if (newModels.length === 0) return p;
+
+    changed = true;
+    return { ...p, models: [...p.models, ...newModels] };
+  });
+  return { profiles: merged, changed };
+}
+
 export function loadSettings(accountId: string): SettingsState {
   if (typeof window === "undefined") return { profiles: [], activeId: null };
   try {
@@ -158,6 +178,13 @@ export function loadSettings(accountId: string): SettingsState {
     }
     if (!parsed.activeId || !parsed.profiles.find((p) => p.id === parsed.activeId)) {
       parsed.activeId = parsed.profiles[0].id;
+    }
+    // Auto-merge new models from updated presets (adds Qwen3 etc. to existing profiles)
+    const { profiles: updatedProfiles, changed } = mergePresetsIntoProfiles(parsed.profiles);
+    if (changed) {
+      parsed.profiles = updatedProfiles;
+      // Save the updated state back to localStorage
+      try { localStorage.setItem(settingsKey(accountId), JSON.stringify(parsed)); } catch {}
     }
     return parsed;
   } catch {

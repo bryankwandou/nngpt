@@ -43,12 +43,14 @@ interface DashData {
   qwen_key_full: string;
   qwen_base_url: string;
   qwen_model: string;
+  qwen_uses_lb: boolean;
   telegram_token: string;
   telegram_token_full: string;
   usage: Usage | null;
   requests: { requests: RequestItem[] } | { request_count?: number; data?: RequestItem[] } | null;
   qwen_usage: unknown;
   synced_from_bot: boolean;
+  missing_vars: string[];
   fetched_at: string;
 }
 
@@ -351,24 +353,50 @@ export default function Dashboard() {
           </div>
         )}
 
+        {/* Missing vars banner */}
+        {data?.missing_vars && data.missing_vars.length > 0 && (
+          <div className="rounded-2xl border border-yellow-800/50 bg-yellow-900/10 p-4">
+            <p className="mb-2 text-sm font-semibold text-yellow-400">⚠️ Missing Vercel Environment Variables</p>
+            <p className="text-xs text-yellow-300 mb-2">Add these in Vercel → Project → Settings → Environment Variables, then redeploy:</p>
+            {data.missing_vars.map(v => (
+              <div key={v} className="mb-1 flex items-center gap-2 font-mono text-xs text-yellow-200">
+                <span>→</span>
+                <code className="bg-yellow-900/30 px-2 py-0.5 rounded">{v}</code>
+              </div>
+            ))}
+            <p className="mt-2 text-[11px] text-yellow-500">OR: run <code className="font-mono">/setapi qwen YOUR_KEY</code> in Telegram bot (auto-syncs)</p>
+          </div>
+        )}
+
         {/* Qwen / Jatevo Direct Section */}
         <div className="bg-[#1a1a1a] rounded-2xl p-6 border border-[#2a2a2a]">
-          <div className="flex items-center gap-2 mb-4">
-            <span className="text-orange-400 font-bold">QWEN</span>
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            <span className="text-orange-400 font-bold">QWEN3</span>
             <span className="text-[#444]">·</span>
-            <span className="text-sm text-[#888]">Jatevo Direct · {data?.qwen_model ?? "qwen3.5-plus"}</span>
-            <span className={`ml-2 px-2 py-0.5 text-xs rounded-full ${data?.qwen_key_full ? "bg-orange-900/30 text-orange-400" : "bg-[#333] text-[#666]"}`}>
-              {data?.qwen_key_full ? "● Connected" : "● Key not set"}
+            <span className="text-sm text-[#888]">{data?.qwen_uses_lb ? "via Jatevo LB" : "Jatevo Direct"} · {data?.qwen_model ?? "qwen3.5-plus"}</span>
+            <span className={`px-2 py-0.5 text-xs rounded-full ${data?.qwen_key_full ? "bg-orange-900/30 text-orange-400" : "bg-[#333] text-[#666]"}`}>
+              {data?.qwen_key_full ? (data?.qwen_uses_lb ? "● Via LB fallback" : "● Connected") : "● Key not set"}
             </span>
           </div>
+          {data?.qwen_uses_lb && (
+            <div className="mb-3 rounded-lg border border-orange-900/30 bg-orange-950/30 px-3 py-2 text-xs text-orange-300">
+              <strong>Qwen3 via Jatevo LB:</strong> Currently using your Jatevo LB key to route Qwen3 requests.
+              For dedicated Qwen3 access, add <code className="font-mono">JATEVO_API_KEY</code> in Vercel
+              (the direct API key, separate from LB key).
+              <br />
+              <strong>Qwen3 models available via LB:</strong> qwen3-235b-a22b, qwen3-72b, qwen3-30b-a3b, qwen3-14b, qwen3-8b
+            </div>
+          )}
           {!data?.qwen_key_full && (
             <div className="mb-3 rounded-lg border border-orange-900/40 bg-orange-900/10 px-3 py-2 text-xs text-orange-300">
-              Add <code className="font-mono">QWEN_API_KEY</code> or <code className="font-mono">JATEVO_API_KEY</code> in Vercel environment variables,
-              or use <code className="font-mono">/setapi qwen sk-...</code> in the Telegram bot (auto-syncs here).
+              Add <code className="font-mono">JATEVO_API_KEY</code> or <code className="font-mono">QWEN_API_KEY</code> in Vercel,
+              or run <code className="font-mono">/setapi qwen sk-...</code> in Telegram bot.
             </div>
           )}
           <div className="space-y-3">
-            <KeyRow label="Qwen API Key (JATEVO_API_KEY / QWEN_API_KEY)" display={data?.qwen_key ?? "—"} full={data?.qwen_key_full ?? ""} color="#fb923c" />
+            <KeyRow
+              label={data?.qwen_uses_lb ? "Qwen API Key (using Jatevo LB key — same as GPT)" : "Qwen API Key (JATEVO_API_KEY / QWEN_API_KEY)"}
+              display={data?.qwen_key ?? "—"} full={data?.qwen_key_full ?? ""} color="#fb923c" />
             <KeyRow label="Base URL" display={data?.qwen_base_url ?? "—"} full={data?.qwen_base_url ?? ""} color="#888" />
           </div>
         </div>

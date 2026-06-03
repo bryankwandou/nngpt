@@ -96,12 +96,14 @@ export async function GET(req: NextRequest) {
   const gptKey     = process.env.OPENAI_API_KEY ?? "";       // Jatevo LB key
   const gptBaseUrl = (process.env.OPENAI_BASE_URL ?? "https://lb.jatevo.ai/v1").replace(/\/chat\/completions\/?$/, "");
 
-  // Qwen: check QWEN_API_KEY first, then JATEVO_API_KEY (Jatevo direct uses Qwen)
-  const qwenKey    = process.env.QWEN_API_KEY ?? process.env.JATEVO_API_KEY ?? "";
+  // Qwen: check QWEN_API_KEY, then JATEVO_API_KEY, then fall back to OPENAI_API_KEY (Jatevo LB also routes Qwen3)
+  const qwenKeyDedicated = process.env.QWEN_API_KEY ?? process.env.JATEVO_API_KEY ?? "";
+  const qwenUsesLbFallback = !qwenKeyDedicated && Boolean(gptKey);
+  const qwenKey    = qwenKeyDedicated || (qwenUsesLbFallback ? gptKey : "");
   const qwenBaseUrl = process.env.QWEN_BASE_URL
     ?? (process.env.JATEVO_BASE_URL
       ? process.env.JATEVO_BASE_URL.replace(/\/chat\/completions\/?$/, "")
-      : "https://jatevo.id/api/open/v1/inference");
+      : (qwenUsesLbFallback ? (process.env.OPENAI_BASE_URL ?? "https://lb.jatevo.ai/v1").replace(/\/chat\/completions\/?$/, "") : "https://jatevo.id/api/open/v1/inference"));
   const qwenModel  = process.env.QWEN_MODEL ?? process.env.JATEVO_MODEL ?? "qwen3.5-plus";
 
   const telegramToken = process.env.TELEGRAM_BOT_TOKEN ?? "";
@@ -127,7 +129,7 @@ export async function GET(req: NextRequest) {
 
   // Merge: env vars > synced keys from bot
   const effectiveGptKey  = gptKey  || syncedKeys.gpt  || "";
-  const effectiveQwenKey = qwenKey || syncedKeys.qwen || "";
+  const effectiveQwenKey = qwenKey || syncedKeys.qwen || (effectiveGptKey ? effectiveGptKey : "");
   const effectiveTgToken = telegramToken || syncedKeys.telegram || "";
 
   // Fetch real usage from Jatevo LB API
@@ -137,13 +139,14 @@ export async function GET(req: NextRequest) {
 
   return Response.json({
     gpt_key:      truncateKey(effectiveGptKey),
-    gpt_key_full: effectiveGptKey,            // full key for copy
+    gpt_key_full: effectiveGptKey,
     gpt_base_url: gptBaseUrl,
 
-    qwen_key:      truncateKey(effectiveQwenKey),
-    qwen_key_full: effectiveQwenKey,
-    qwen_base_url: qwenBaseUrl,
-    qwen_model:    qwenModel,
+    qwen_key:          truncateKey(effectiveQwenKey),
+    qwen_key_full:     effectiveQwenKey,
+    qwen_base_url:     qwenBaseUrl,
+    qwen_model:        qwenModel,
+    qwen_uses_lb:      qwenUsesLbFallback,  // true = using LB key as Qwen fallback
 
     telegram_token:      effectiveTgToken ? `${effectiveTgToken.split(":")[0]}:****` : "",
     telegram_token_full: effectiveTgToken,
@@ -152,6 +155,10 @@ export async function GET(req: NextRequest) {
     requests,
     qwen_usage: null,
     synced_from_bot: Object.keys(syncedKeys).length > 0,
+    missing_vars: [
+      ...(!process.env.JATEVO_API_KEY && !process.env.QWEN_API_KEY ? ["JATEVO_API_KEY or QWEN_API_KEY"] : []),
+      ...(!process.env.TELEGRAM_BOT_TOKEN && !syncedKeys.telegram ? ["TELEGRAM_BOT_TOKEN"] : []),
+    ],
     fetched_at: new Date().toISOString(),
   });
 }
