@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { checkRateLimit, getIpKey } from "@/lib/ratelimit";
+import { hasDb, ensureTables, dbGetSession } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,20 +27,34 @@ const SYSTEM_PROMPT =
   "Format code in markdown fenced blocks with the language name. " +
   "When given file attachments, analyze them fully. Be direct, accurate, and complete — never truncate your response.";
 
-function pickCreds(body: ChatRequestBody) {
-  const apiKey =
-    (body.apiKey || "").trim() ||
-    process.env.OPENAI_API_KEY || "";
+/** Returns true if the Bearer session is valid in Neon DB */
+async function hasValidSession(req: NextRequest): Promise<boolean> {
+  if (!hasDb()) return false;
+  const auth = req.headers.get("authorization") ?? "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+  if (!token) return false;
+  try {
+    await ensureTables();
+    const session = await dbGetSession(token);
+    return session !== null;
+  } catch {
+    return false;
+  }
+}
+
+function pickCreds(body: ChatRequestBody, useServerFallback: boolean) {
+  const clientKey = (body.apiKey || "").trim();
+  const apiKey = clientKey || (useServerFallback ? process.env.OPENAI_API_KEY || "" : "");
   const baseURL = (
     (body.baseURL || "").trim() ||
     process.env.OPENAI_BASE_URL ||
     "https://lb.jatevo.ai/v1"
   ).replace(/\/+$/, "");
-  return { apiKey, baseURL };
+  return { apiKey, baseURL, usingServerKey: !clientKey && Boolean(process.env.OPENAI_API_KEY) };
 }
 
 export async function POST(req: NextRequest) {
-  // Rate limit: 30 requests per minute per IP
+  // Rate limit: 30 req/min per IP
   const rl = checkRateLimit(getIpKey(req, "chat"), 30, 60_000);
   if (!rl.ok) {
     return new Response(
@@ -48,7 +63,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Block requests not originating from this app's own frontend
+  // CORS: only our own frontends
   const origin = req.headers.get("origin") ?? "";
   const referer = req.headers.get("referer") ?? "";
   const allowed = [
@@ -83,13 +98,25 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const { apiKey, baseURL } = pickCreds(body);
+  const clientKey = (body.apiKey || "").trim();
+  const hasServerKey = Boolean(process.env.OPENAI_API_KEY);
+
+  // If no client key and server key exists, require a valid session
+  // This prevents anonymous users from burning the server's API quota.
+  if (!clientKey && hasServerKey) {
+    const sessionOk = await hasValidSession(req);
+    if (!sessionOk) {
+      return new Response(
+        JSON.stringify({ error: "Please log in to use the service, or configure your own API key in Settings." }),
+        { status: 401, headers: { "content-type": "application/json" } }
+      );
+    }
+  }
+
+  const { apiKey, baseURL } = pickCreds(body, true);
   if (!apiKey) {
     return new Response(
-      JSON.stringify({
-        error:
-          "No API key configured. Open ⚙ Settings → set your API key → Test → Save.",
-      }),
+      JSON.stringify({ error: "No API key configured. Open ⚙ Settings → set your API key → Test → Save." }),
       { status: 401, headers: { "content-type": "application/json" } }
     );
   }

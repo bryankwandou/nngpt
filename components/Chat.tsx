@@ -134,6 +134,9 @@ export default function Chat() {
   const [editContent, setEditContent] = useState("");
   const [renamingConvId, setRenamingConvId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [recovering, setRecovering] = useState(false);
+  const [recoverMsg, setRecoverMsg] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -924,6 +927,38 @@ export default function Chat() {
     setRenameValue("");
   }, [renameValue]);
 
+  /* ── Chat history recovery ──────────────────────────────────── */
+  const recoverHistory = useCallback(async () => {
+    if (!session?.sessionId || recovering) return;
+    setRecovering(true);
+    setRecoverMsg(null);
+    try {
+      const r = await fetch("/api/recover", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sessionId: session.sessionId }),
+      });
+      const data = await r.json() as { recovered?: number; conversations?: Conversation[]; message?: string; error?: string };
+      if (data.error) { setRecoverMsg(`⚠️ ${data.error}`); return; }
+      if (data.conversations && data.conversations.length > 0) {
+        const byId = new Map<string, Conversation>();
+        for (const c of data.conversations) byId.set(c.id, c);
+        for (const c of conversations) byId.set(c.id, c); // local wins
+        const merged = [...byId.values()].sort((a, b) => b.createdAt - a.createdAt);
+        setConversations(merged);
+        if (!activeConvId && merged.length > 0) setActiveConvId(merged[0].id);
+        setRecoverMsg(`✓ ${data.message ?? `Recovered ${data.recovered} chats`}`);
+      } else {
+        setRecoverMsg("No additional history found.");
+      }
+    } catch {
+      setRecoverMsg("⚠️ Recovery failed. Check connection.");
+    } finally {
+      setRecovering(false);
+      setTimeout(() => setRecoverMsg(null), 5000);
+    }
+  }, [session, recovering, conversations, activeConvId]);
+
   /* ── Unified send dispatcher ─────────────────────────────────── */
   const send = useCallback(() => {
     if (mode === "chat") return sendChat();
@@ -940,6 +975,8 @@ export default function Chat() {
   }, []);
 
   const displayModelLabel = availableModels.length === 0 ? "no model" : (model.length > 28 ? model.slice(0, 26) + "…" : model);
+  // Short label for very narrow screens (< 480px)
+  const shortModelLabel = availableModels.length === 0 ? "?" : (model.split("/").pop() ?? model).slice(0, 14);
   const processingCount = attachments.filter(a => a.processing).length;
   const canSend = !isStreaming && (input.trim().length > 0 || (mode === "chat" && attachments.filter(a => !a.processing).length > 0));
 
@@ -1055,14 +1092,40 @@ export default function Chat() {
               <ChatBubbleIcon /><span>New chat</span>
             </button>
           </div>
-          <div className="mt-3 flex-1 overflow-y-auto px-2 pb-4">
+          <div className="mt-2 px-2">
+            {/* Search */}
+            <div className="relative mb-2">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Search chats…"
+                aria-label="Search conversations"
+                className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elev)] px-3 py-1.5 text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-border-strong)] placeholder:text-[var(--color-text-dim)]"
+              />
+              {searchQuery && (
+                <button type="button" onClick={() => setSearchQuery("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--color-text-dim)] hover:text-[var(--color-text)]"
+                  aria-label="Clear search">×</button>
+              )}
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-2 pb-4">
             <div className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-dim)]">
               {session.username}&apos;s chats
             </div>
-            {conversations.length === 0 && (
-              <div className="px-2 py-2 text-xs text-[var(--color-text-dim)]">No chats yet</div>
+            {recoverMsg && (
+              <div className="mx-2 mb-2 rounded-lg border border-[var(--color-border)] px-2 py-1.5 text-[11px] text-[var(--color-text-secondary)]">
+                {recoverMsg}
+              </div>
             )}
-            {conversations.map(c => (
+            {conversations.filter(c => !searchQuery || c.title.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 && (
+              <div className="px-2 py-2 text-xs text-[var(--color-text-dim)]">
+                {searchQuery ? "No matching chats" : "No chats yet"}
+              </div>
+            )}
+            {conversations.filter(c => !searchQuery || c.title.toLowerCase().includes(searchQuery.toLowerCase())).map(c => (
               <div
                 key={c.id}
                 onClick={() => {
@@ -1127,6 +1190,12 @@ export default function Chat() {
               className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text)]">
               <GearIcon /><span>Settings</span>
             </button>
+            {/* Recover lost chat history */}
+            <button type="button" onClick={recoverHistory} disabled={recovering}
+              className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-[12px] text-[var(--color-text-dim)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] disabled:opacity-50"
+              title="Scan all storage locations and recover any missing chat history">
+              <RegenIcon /><span>{recovering ? "Recovering…" : "Recover lost chats"}</span>
+            </button>
             <div className="mt-1 flex items-center gap-2 px-2 py-1">
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#10a37f] to-[#0c7561] text-[11px] font-bold text-white">
                 {session.username.slice(0, 2).toUpperCase()}
@@ -1172,7 +1241,10 @@ export default function Chat() {
               disabled={availableModels.length === 0}
               className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[14px] font-semibold text-[var(--color-text)] hover:bg-[var(--color-bg-hover)] disabled:opacity-50"
             >
-              <span className="max-w-[180px] truncate">nngpt · {displayModelLabel}</span>
+              <span className="max-w-[160px] truncate">
+                <span className="model-label-full">nngpt · {displayModelLabel}</span>
+                <span className="model-label-short">nngpt · {shortModelLabel}</span>
+              </span>
               <ChevronDownIcon />
             </button>
             {modelOpen && availableModels.length > 0 && (

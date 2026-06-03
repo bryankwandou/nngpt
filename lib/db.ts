@@ -311,3 +311,16 @@ export async function dbSaveSettings(accountId: string, data: unknown): Promise<
           updated_at = NOW()
   `;
 }
+
+// Debug: count all conversations stored in DB (all accounts)
+export async function dbCountAllConversations(): Promise<{ account_id: string; count: number; updated_at: Date }[]> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT c.account_id, jsonb_array_length(c.data) AS count, c.updated_at,
+           a.username
+    FROM nngpt_conversations c
+    LEFT JOIN nngpt_accounts a ON a.id = c.account_id
+    ORDER BY c.updated_at DESC
+  `;
+  return rows as { account_id: string; count: number; updated_at: Date }[];
+}
