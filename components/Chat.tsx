@@ -675,10 +675,13 @@ export default function Chat() {
     try {
       const res = await fetch("/api/generate/image", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          ...(session?.sessionId ? { authorization: `Bearer ${session.sessionId}` } : {}),
+        },
         body: JSON.stringify({ prompt, apiKey: activeProfile?.apiKey ?? "", baseURL: activeProfile?.baseURL ?? "" }),
       });
-      const data = await res.json() as { url?: string; b64_json?: string; revised_prompt?: string; error?: string };
+      const data = await res.json() as { url?: string; b64_json?: string; revised_prompt?: string; error?: string; notice?: string; provider?: string };
       if (data.error) throw new Error(data.error);
 
       let imageContent = "";
@@ -691,6 +694,9 @@ export default function Chat() {
       }
       if (data.revised_prompt) {
         imageContent += `\n\n*Revised prompt: ${data.revised_prompt}*`;
+      }
+      if (data.notice) {
+        imageContent += `\n\n> 💡 ${data.notice}`;
       }
 
       setConversations(prev => prev.map(c => c.id === convId
