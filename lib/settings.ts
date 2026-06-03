@@ -18,25 +18,47 @@ export const PRESETS: PresetTemplate[] = [
   {
     name: "Jatevo Balancer",
     baseURL: "https://lb.jatevo.ai/v1",
-    models: ["gpt-5.5", "gpt-5.4", "gpt-5.3-codex", "gpt-5.4-mini", "gpt-5.2"],
+    models: [
+      "gpt-5.5", "gpt-5.4", "gpt-5.3-codex", "gpt-5.4-mini", "gpt-5.2",
+      "qwen3-235b-a22b", "qwen3-72b", "qwen3-30b-a3b", "qwen3-14b", "qwen3-8b",
+    ],
     defaultModel: "gpt-5.4",
   },
   {
-    name: "Jatevo Direct",
+    // Jatevo Direct — powered by Qwen3 / Alibaba Cloud via Jatevo
+    name: "Jatevo Direct (Qwen3)",
     baseURL: "https://jatevo.id/api/open/v1/inference",
-    models: ["qwen3.5-plus", "qwen-plus", "qwen-max", "qwen-turbo"],
+    models: [
+      "qwen3.5-plus",
+      "qwen3-235b-a22b",
+      "qwen3-72b",
+      "qwen3-30b-a3b",
+      "qwen3-14b",
+      "qwen3-8b",
+      "qwen3-4b",
+      "qwen-plus",
+      "qwen-max",
+      "qwen-turbo",
+    ],
     defaultModel: "qwen3.5-plus",
   },
   {
     name: "OpenAI",
     baseURL: "https://api.openai.com/v1",
-    models: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o1", "o1-mini", "o3-mini"],
+    models: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o1", "o1-mini", "o3-mini", "o4-mini"],
     defaultModel: "gpt-4o-mini",
   },
   {
-    name: "Qwen (Alibaba Cloud)",
+    // Qwen3 — Alibaba Cloud DashScope (international)
+    name: "Qwen3 (Alibaba Cloud)",
     baseURL: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
     models: [
+      "qwen3-235b-a22b",
+      "qwen3-72b",
+      "qwen3-30b-a3b",
+      "qwen3-14b",
+      "qwen3-8b",
+      "qwen3-4b",
       "qwen-max",
       "qwen-plus",
       "qwen-turbo",
@@ -45,7 +67,7 @@ export const PRESETS: PresetTemplate[] = [
       "qwen2.5-coder-32b-instruct",
       "qwq-plus",
     ],
-    defaultModel: "qwen-plus",
+    defaultModel: "qwen3-235b-a22b",
   },
   {
     name: "Groq",
